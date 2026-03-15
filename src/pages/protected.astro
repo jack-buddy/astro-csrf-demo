@@ -1,0 +1,434 @@
+---
+import Layout from '../layouts/Layout.astro';
+
+// Astro 6 CSRF Protection - THE RIGHT WAY
+// Astro automatically validates CSRF tokens for POST requests
+
+let message = '';
+let isError = false;
+
+if (Astro.request.method === 'POST') {
+	try {
+		const formData = await Astro.request.formData();
+		const email = formData.get('email');
+		const amount = formData.get('amount');
+		
+		// If we got here, the CSRF token was valid!
+		// Astro validated it automatically before this code ran
+		message = `✅ Transfer of $${amount} to ${email} submitted successfully!`;
+		isError = false;
+	} catch (error) {
+		message = `❌ Error: ${error.message}`;
+		isError = true;
+	}
+}
+---
+
+<Layout title="Protected Form - Astro 6 CSRF">
+	<main>
+		<a href="/" class="back-link">← Back to Home</a>
+		
+		<div class="success-banner">
+			<h1>✅ PROTECTED FORM</h1>
+			<p><strong>This form is protected by Astro 6's built-in CSRF protection!</strong></p>
+			<p>Automatic token generation and validation.</p>
+		</div>
+		
+		<section>
+			<h2>How Astro 6 Protects You</h2>
+			<p>Astro 6 automatically:</p>
+			<ul>
+				<li>✅ Generates unique CSRF tokens for each session</li>
+				<li>✅ Validates tokens on all POST, PUT, PATCH, DELETE requests</li>
+				<li>✅ Rejects requests with missing or invalid tokens</li>
+				<li>✅ Works with both regular forms and API endpoints</li>
+				<li>✅ Zero configuration required</li>
+			</ul>
+		</section>
+		
+		<section>
+			<h2>Protected Form Example</h2>
+			<p>The exact same form, but now protected:</p>
+			
+			<form method="POST" class="form">
+				{/* Astro automatically adds CSRF token as hidden field */}
+				{/* You don't need to add anything manually! */}
+				
+				<div class="form-group">
+					<label for="email">Transfer to (email):</label>
+					<input 
+						type="email" 
+						id="email" 
+						name="email" 
+						required 
+						placeholder="recipient@example.com"
+					/>
+				</div>
+				
+				<div class="form-group">
+					<label for="amount">Amount ($):</label>
+					<input 
+						type="number" 
+						id="amount" 
+						name="amount" 
+						required 
+						min="0" 
+						step="0.01"
+						placeholder="100.00"
+					/>
+				</div>
+				
+				<button type="submit">Submit Transfer (Protected)</button>
+			</form>
+			
+			{message && (
+				<div class={isError ? 'message error' : 'message success'}>
+					{message}
+				</div>
+			)}
+			
+			<div class="info-box">
+				<h3>🔍 What's Different?</h3>
+				<p>
+					<strong>Nothing visible to you!</strong> Astro automatically:
+				</p>
+				<ul>
+					<li>Injects a hidden CSRF token field into your form</li>
+					<li>Validates the token when the form is submitted</li>
+					<li>Rejects requests with missing/invalid tokens</li>
+				</ul>
+				<p>
+					<em>Check the HTML source to see the hidden token field!</em>
+				</p>
+			</div>
+		</section>
+		
+		<section>
+			<h2>How It Works</h2>
+			<div class="steps">
+				<div class="step">
+					<div class="step-number">1</div>
+					<div class="step-content">
+						<h3>Page Load</h3>
+						<p>Astro generates a unique CSRF token for the session</p>
+					</div>
+				</div>
+				
+				<div class="step">
+					<div class="step-number">2</div>
+					<div class="step-content">
+						<h3>Form Render</h3>
+						<p>Token is automatically added as a hidden field in your form</p>
+					</div>
+				</div>
+				
+				<div class="step">
+					<div class="step-number">3</div>
+					<div class="step-content">
+						<h3>Form Submit</h3>
+						<p>Browser sends the form data including the CSRF token</p>
+					</div>
+				</div>
+				
+				<div class="step">
+					<div class="step-number">4</div>
+					<div class="step-content">
+						<h3>Token Validation</h3>
+						<p>Astro validates the token BEFORE your code runs</p>
+					</div>
+				</div>
+				
+				<div class="step">
+					<div class="step-number">5</div>
+					<div class="step-content">
+						<h3>Result</h3>
+						<p>Valid token → process request<br/>Invalid/missing → reject (403 error)</p>
+					</div>
+				</div>
+			</div>
+		</section>
+		
+		<section>
+			<h2>The Old Way vs The New Way</h2>
+			
+			<div class="comparison">
+				<div class="old-way">
+					<h3>❌ Manual CSRF Protection</h3>
+					<pre><code>// Generate token
+const token = crypto.randomUUID();
+session.set('csrf', token);
+
+// Add to form
+&lt;input type="hidden" name="_csrf" value={token}&gt;
+
+// Validate on submit
+const submitted = formData.get('_csrf');
+const stored = session.get('csrf');
+if (submitted !== stored) {
+  return new Response('Invalid token', { status: 403 });
+}</code></pre>
+					<p><strong>Problems:</strong></p>
+					<ul>
+						<li>Easy to forget</li>
+						<li>Easy to implement incorrectly</li>
+						<li>Requires session management</li>
+						<li>Must remember for every form</li>
+						<li>Must validate in every endpoint</li>
+					</ul>
+				</div>
+				
+				<div class="new-way">
+					<h3>✅ Astro 6 CSRF Protection</h3>
+					<pre><code>// That's it! Nothing to add.
+// Astro handles everything automatically.
+
+// Your form works as normal:
+&lt;form method="POST"&gt;
+  &lt;!-- Your fields --&gt;
+&lt;/form&gt;
+
+// Your endpoint works as normal:
+if (Astro.request.method === 'POST') {
+  // If we got here, token was valid!
+  const formData = await Astro.request.formData();
+  // ... process form
+}</code></pre>
+					<p><strong>Benefits:</strong></p>
+					<ul>
+						<li>Can't forget - it's automatic</li>
+						<li>Can't implement wrong</li>
+						<li>Works with all forms</li>
+						<li>Works with API endpoints</li>
+						<li>Zero configuration</li>
+					</ul>
+				</div>
+			</div>
+		</section>
+		
+		<section>
+			<h2>Protection Against the Attack</h2>
+			<p>When an attacker tries the same attack:</p>
+			<ol>
+				<li>Attacker's site submits the form</li>
+				<li>Request includes cookies (user is logged in)</li>
+				<li><strong>But request has no CSRF token!</strong></li>
+				<li>Astro rejects the request with 403 Forbidden</li>
+				<li>Attack fails! User's money is safe.</li>
+			</ol>
+			<p>
+				<strong>Key insight:</strong> The attacker can't get the CSRF token because
+				it's unique to each session and not accessible from a different origin due
+				to the Same-Origin Policy.
+			</p>
+		</section>
+	</main>
+</Layout>
+
+<style>
+	main {
+		max-width: 900px;
+		margin: 0 auto;
+		padding: 2rem;
+	}
+	
+	.back-link {
+		display: inline-block;
+		margin-bottom: 2rem;
+		color: #0066cc;
+		text-decoration: none;
+	}
+	
+	.success-banner {
+		background: #d4edda;
+		border: 3px solid #28a745;
+		padding: 2rem;
+		border-radius: 0.5rem;
+		margin-bottom: 3rem;
+		text-align: center;
+	}
+	
+	.success-banner h1 {
+		color: #155724;
+		margin: 0 0 1rem;
+	}
+	
+	.success-banner p {
+		margin: 0.5rem 0;
+		color: #155724;
+	}
+	
+	section {
+		margin: 3rem 0;
+		padding: 2rem;
+		background: #f9f9f9;
+		border-radius: 0.5rem;
+	}
+	
+	h2 {
+		font-size: 1.5rem;
+		margin-bottom: 1rem;
+		color: #555;
+	}
+	
+	h3 {
+		font-size: 1.25rem;
+		margin-bottom: 0.75rem;
+	}
+	
+	.form {
+		background: white;
+		padding: 2rem;
+		border-radius: 0.5rem;
+		max-width: 500px;
+		margin-bottom: 2rem;
+	}
+	
+	.form-group {
+		margin-bottom: 1.5rem;
+	}
+	
+	label {
+		display: block;
+		margin-bottom: 0.5rem;
+		font-weight: 600;
+	}
+	
+	input {
+		width: 100%;
+		padding: 0.75rem;
+		border: 1px solid #ddd;
+		border-radius: 0.25rem;
+		font-size: 1rem;
+	}
+	
+	button {
+		background: #28a745;
+		color: white;
+		padding: 0.75rem 2rem;
+		border: none;
+		border-radius: 0.25rem;
+		font-size: 1rem;
+		cursor: pointer;
+		transition: background 0.2s;
+	}
+	
+	button:hover {
+		background: #218838;
+	}
+	
+	.message {
+		margin-top: 1.5rem;
+		padding: 1rem;
+		border-radius: 0.25rem;
+	}
+	
+	.message.success {
+		background: #d4edda;
+		border: 1px solid #c3e6cb;
+		color: #155724;
+	}
+	
+	.message.error {
+		background: #f8d7da;
+		border: 1px solid #f5c6cb;
+		color: #721c24;
+	}
+	
+	.info-box {
+		background: #e7f3ff;
+		border-left: 4px solid #0066cc;
+		padding: 1.5rem;
+		margin-top: 2rem;
+	}
+	
+	.info-box h3 {
+		margin-top: 0;
+	}
+	
+	.steps {
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+	}
+	
+	.step {
+		display: flex;
+		gap: 1.5rem;
+		align-items: flex-start;
+	}
+	
+	.step-number {
+		background: #28a745;
+		color: white;
+		width: 40px;
+		height: 40px;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-weight: bold;
+		flex-shrink: 0;
+	}
+	
+	.step-content {
+		flex: 1;
+	}
+	
+	.step-content h3 {
+		margin: 0 0 0.5rem;
+	}
+	
+	.step-content p {
+		margin: 0;
+	}
+	
+	.comparison {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 2rem;
+		margin-top: 1.5rem;
+	}
+	
+	@media (max-width: 768px) {
+		.comparison {
+			grid-template-columns: 1fr;
+		}
+	}
+	
+	.old-way, .new-way {
+		background: white;
+		padding: 1.5rem;
+		border-radius: 0.5rem;
+	}
+	
+	.old-way {
+		border: 2px solid #dc3545;
+	}
+	
+	.new-way {
+		border: 2px solid #28a745;
+	}
+	
+	pre {
+		background: #2d2d2d;
+		color: #f8f8f2;
+		padding: 1rem;
+		border-radius: 0.5rem;
+		overflow-x: auto;
+		font-size: 0.813rem;
+		line-height: 1.5;
+		margin: 1rem 0;
+	}
+	
+	code {
+		font-family: 'Courier New', monospace;
+	}
+	
+	ul, ol {
+		line-height: 1.8;
+	}
+	
+	li {
+		margin: 0.5rem 0;
+	}
+</style>

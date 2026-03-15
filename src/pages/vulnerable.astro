@@ -1,0 +1,260 @@
+---
+import Layout from '../layouts/Layout.astro';
+
+// INTENTIONALLY VULNERABLE - FOR DEMONSTRATION ONLY
+// This is what you should NOT do!
+
+let message = '';
+let isError = false;
+
+if (Astro.request.method === 'POST') {
+	const formData = await Astro.request.formData();
+	const email = formData.get('email');
+	const amount = formData.get('amount');
+	
+	// NO CSRF PROTECTION - This is the vulnerability!
+	message = `Transfer of $${amount} to ${email} submitted! (This would be dangerous in production)`;
+	isError = false;
+}
+---
+
+<Layout title="Vulnerable Form - No CSRF Protection">
+	<main>
+		<a href="/" class="back-link">← Back to Home</a>
+		
+		<div class="danger-banner">
+			<h1>⚠️ VULNERABLE FORM</h1>
+			<p><strong>This form has NO CSRF protection!</strong></p>
+			<p>This demonstrates the security risk. Never do this in production.</p>
+		</div>
+		
+		<section>
+			<h2>The Problem: Cross-Site Request Forgery</h2>
+			<p>
+				Without CSRF protection, an attacker can trick a logged-in user into
+				submitting this form from a malicious website. The user's browser will
+				automatically send their cookies, making the request look legitimate.
+			</p>
+		</section>
+		
+		<section>
+			<h2>Example Vulnerable Form</h2>
+			<p>Imagine this is a bank transfer form on your banking website:</p>
+			
+			<form method="POST" class="form">
+				<div class="form-group">
+					<label for="email">Transfer to (email):</label>
+					<input 
+						type="email" 
+						id="email" 
+						name="email" 
+						required 
+						placeholder="recipient@example.com"
+					/>
+				</div>
+				
+				<div class="form-group">
+					<label for="amount">Amount ($):</label>
+					<input 
+						type="number" 
+						id="amount" 
+						name="amount" 
+						required 
+						min="0" 
+						step="0.01"
+						placeholder="100.00"
+					/>
+				</div>
+				
+				<button type="submit">Submit Transfer</button>
+			</form>
+			
+			{message && (
+				<div class={isError ? 'message error' : 'message success'}>
+					{message}
+				</div>
+			)}
+		</section>
+		
+		<section>
+			<h2>How the Attack Works</h2>
+			<ol>
+				<li><strong>User logs into your site</strong> - Gets session cookie</li>
+				<li><strong>User visits attacker's site</strong> - While still logged in</li>
+				<li><strong>Attacker's site contains hidden form</strong> - That submits to YOUR site</li>
+				<li><strong>Browser automatically sends cookies</strong> - Request looks legitimate</li>
+				<li><strong>Your server processes it</strong> - Money transferred to attacker!</li>
+			</ol>
+		</section>
+		
+		<section>
+			<h2>Example Malicious Page</h2>
+			<pre><code>&lt;!-- evil-site.com --&gt;
+&lt;form action="https://your-bank.com/transfer" method="POST" id="evil"&gt;
+  &lt;input type="hidden" name="email" value="attacker@evil.com"&gt;
+  &lt;input type="hidden" name="amount" value="10000"&gt;
+&lt;/form&gt;
+&lt;script&gt;
+  // Automatically submit when page loads
+  document.getElementById('evil').submit();
+&lt;/script&gt;</code></pre>
+			<p>
+				When a logged-in user visits this page, the form auto-submits.
+				Their browser sends their cookies, and the transfer goes through!
+			</p>
+		</section>
+		
+		<section>
+			<h2>Real-World Impact</h2>
+			<ul>
+				<li>💸 Financial theft (bank transfers, purchases)</li>
+				<li>📧 Account changes (email, password)</li>
+				<li>🗑️ Data deletion</li>
+				<li>👤 Unauthorized actions (posts, messages)</li>
+				<li>⚙️ Settings changes</li>
+			</ul>
+		</section>
+		
+		<section>
+			<h2>Why It's Dangerous</h2>
+			<p><strong>Sessions are cookie-based:</strong></p>
+			<ul>
+				<li>Cookies are sent automatically with every request</li>
+				<li>Your server can't tell if the user intended to make the request</li>
+				<li>The request comes from the user's real browser</li>
+				<li>All authentication cookies are present</li>
+			</ul>
+			<p>
+				<strong>The server has no way to know if the request came from your form
+				or an attacker's hidden form!</strong>
+			</p>
+		</section>
+	</main>
+</Layout>
+
+<style>
+	main {
+		max-width: 900px;
+		margin: 0 auto;
+		padding: 2rem;
+	}
+	
+	.back-link {
+		display: inline-block;
+		margin-bottom: 2rem;
+		color: #0066cc;
+		text-decoration: none;
+	}
+	
+	.danger-banner {
+		background: #f8d7da;
+		border: 3px solid #dc3545;
+		padding: 2rem;
+		border-radius: 0.5rem;
+		margin-bottom: 3rem;
+		text-align: center;
+	}
+	
+	.danger-banner h1 {
+		color: #721c24;
+		margin: 0 0 1rem;
+	}
+	
+	.danger-banner p {
+		margin: 0.5rem 0;
+		color: #721c24;
+	}
+	
+	section {
+		margin: 3rem 0;
+		padding: 2rem;
+		background: #f9f9f9;
+		border-radius: 0.5rem;
+	}
+	
+	h2 {
+		font-size: 1.5rem;
+		margin-bottom: 1rem;
+		color: #555;
+	}
+	
+	.form {
+		background: white;
+		padding: 2rem;
+		border-radius: 0.5rem;
+		max-width: 500px;
+	}
+	
+	.form-group {
+		margin-bottom: 1.5rem;
+	}
+	
+	label {
+		display: block;
+		margin-bottom: 0.5rem;
+		font-weight: 600;
+	}
+	
+	input {
+		width: 100%;
+		padding: 0.75rem;
+		border: 1px solid #ddd;
+		border-radius: 0.25rem;
+		font-size: 1rem;
+	}
+	
+	button {
+		background: #dc3545;
+		color: white;
+		padding: 0.75rem 2rem;
+		border: none;
+		border-radius: 0.25rem;
+		font-size: 1rem;
+		cursor: pointer;
+		transition: background 0.2s;
+	}
+	
+	button:hover {
+		background: #c82333;
+	}
+	
+	.message {
+		margin-top: 1.5rem;
+		padding: 1rem;
+		border-radius: 0.25rem;
+	}
+	
+	.message.success {
+		background: #d4edda;
+		border: 1px solid #c3e6cb;
+		color: #155724;
+	}
+	
+	.message.error {
+		background: #f8d7da;
+		border: 1px solid #f5c6cb;
+		color: #721c24;
+	}
+	
+	pre {
+		background: #2d2d2d;
+		color: #f8f8f2;
+		padding: 1.5rem;
+		border-radius: 0.5rem;
+		overflow-x: auto;
+		font-size: 0.875rem;
+		line-height: 1.5;
+	}
+	
+	code {
+		font-family: 'Courier New', monospace;
+	}
+	
+	ol, ul {
+		line-height: 1.8;
+	}
+	
+	li {
+		margin: 0.5rem 0;
+	}
+</style>

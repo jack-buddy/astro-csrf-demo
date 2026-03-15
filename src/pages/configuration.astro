@@ -1,0 +1,365 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="CSRF Configuration - Astro 6">
+	<main>
+		<a href="/" class="back-link">← Back to Home</a>
+		
+		<h1>CSRF Configuration Options</h1>
+		
+		<section>
+			<h2>Default Behavior (Zero Config)</h2>
+			<p>
+				By default, Astro 6 enables CSRF protection for all state-changing requests:
+			</p>
+			<ul>
+				<li>✅ <code>POST</code> requests</li>
+				<li>✅ <code>PUT</code> requests</li>
+				<li>✅ <code>PATCH</code> requests</li>
+				<li>✅ <code>DELETE</code> requests</li>
+			</ul>
+			<p>
+				<code>GET</code> requests are NOT protected (they should be idempotent anyway).
+			</p>
+		</section>
+		
+		<section>
+			<h2>When Is It Active?</h2>
+			<p>CSRF protection is enabled in:</p>
+			<ul>
+				<li>✅ Server-Side Rendering (SSR) mode</li>
+				<li>✅ Hybrid mode (pages with <code>export const prerender = false</code>)</li>
+			</ul>
+			<p>Not needed in:</p>
+			<ul>
+				<li>❌ Static mode (no server = no session = no CSRF risk)</li>
+				<li>❌ Client-only apps</li>
+			</ul>
+		</section>
+		
+		<section>
+			<h2>Customizing CSRF Protection</h2>
+			<p>Configure in <code>astro.config.mjs</code>:</p>
+			
+			<pre><code>// astro.config.mjs
+export default defineConfig({
+  output: 'server', // or 'hybrid'
+  
+  security: {
+    csrf: {
+      // Enable or disable CSRF protection
+      enabled: true, // default: true
+      
+      // Customize token cookie name
+      cookieName: '_csrf', // default: 'astro.csrf'
+      
+      // Customize token field name
+      fieldName: 'csrf_token', // default: 'astro.csrf.token'
+      
+      // Paths to exclude from CSRF protection
+      exclude: [
+        '/api/public/*', // Public API endpoints
+        '/webhooks/*',   // External webhooks
+      ],
+      
+      // Custom error handler
+      onInvalidToken: (request) => {
+        return new Response('CSRF token invalid', { 
+          status: 403,
+          headers: { 'Content-Type': 'text/plain' }
+        });
+      },
+    }
+  }
+});</code></pre>
+		</section>
+		
+		<section>
+			<h2>Excluding Specific Routes</h2>
+			<p><strong>When to exclude:</strong></p>
+			<ul>
+				<li>Public API endpoints (authentication via API keys, not cookies)</li>
+				<li>Webhook receivers (GitHub, Stripe, etc.)</li>
+				<li>Third-party integrations</li>
+			</ul>
+			
+			<p><strong>Example:</strong></p>
+			<pre><code>security: {
+  csrf: {
+    exclude: [
+      '/api/public/*',     // Public API
+      '/webhook/stripe',   // Stripe webhooks
+      '/webhook/github',   // GitHub webhooks
+    ]
+  }
+}</code></pre>
+			
+			<div class="warning-box">
+				<h3>⚠️ Security Warning</h3>
+				<p>
+					Only exclude routes that:
+				</p>
+				<ul>
+					<li>Don't use cookie-based authentication</li>
+					<li>Use alternative auth (API keys, signatures)</li>
+					<li>Are truly public endpoints</li>
+				</ul>
+				<p>
+					<strong>Never exclude user-facing forms or authenticated endpoints!</strong>
+				</p>
+			</div>
+		</section>
+		
+		<section>
+			<h2>Custom Token Validation</h2>
+			<p>For advanced use cases, you can implement custom validation:</p>
+			
+			<pre><code>// src/middleware.js
+export async function onRequest(context, next) {
+  const { request } = context;
+  
+  if (request.method === 'POST') {
+    // Access the CSRF token
+    const token = request.headers.get('X-CSRF-Token');
+    
+    // Custom validation logic
+    if (!isValidToken(token)) {
+      return new Response('Invalid CSRF token', { status: 403 });
+    }
+  }
+  
+  return next();
+}</code></pre>
+		</section>
+		
+		<section>
+			<h2>API Endpoints</h2>
+			<p>CSRF protection works automatically with API routes:</p>
+			
+			<pre><code>// src/pages/api/transfer.ts
+export async function POST({ request }) {
+  // CSRF validation happens automatically
+  // If we got here, the token was valid
+  
+  const data = await request.json();
+  
+  // Process the request safely
+  return new Response(JSON.stringify({ success: true }), {
+    headers: { 'Content-Type': 'application/json' }
+  });
+}</code></pre>
+			
+			<p>For frontend requests to API endpoints:</p>
+			<pre><code>// Get CSRF token from cookie
+const csrfToken = getCookie('astro.csrf');
+
+// Include in request header
+fetch('/api/transfer', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-CSRF-Token': csrfToken
+  },
+  body: JSON.stringify({ amount: 100 })
+});</code></pre>
+		</section>
+		
+		<section>
+			<h2>Testing CSRF Protection</h2>
+			<p>Verify your protection works:</p>
+			
+			<div class="test-steps">
+				<div class="test">
+					<h3>✅ Test 1: Valid Request</h3>
+					<ol>
+						<li>Load the form page</li>
+						<li>Submit the form normally</li>
+						<li>Should succeed (token is valid)</li>
+					</ol>
+				</div>
+				
+				<div class="test">
+					<h3>❌ Test 2: Missing Token</h3>
+					<ol>
+						<li>Use curl or Postman</li>
+						<li>Send POST without token</li>
+						<li>Should get 403 Forbidden</li>
+					</ol>
+					<pre><code>curl -X POST http://localhost:4321/transfer \
+  -d "amount=100&email=test@example.com"
+# Should return 403</code></pre>
+				</div>
+				
+				<div class="test">
+					<h3>❌ Test 3: Invalid Token</h3>
+					<ol>
+						<li>Load the form</li>
+						<li>Edit token value in DevTools</li>
+						<li>Submit form</li>
+						<li>Should get 403 Forbidden</li>
+					</ol>
+				</div>
+			</div>
+		</section>
+		
+		<section>
+			<h2>Best Practices</h2>
+			<ul>
+				<li>✅ Keep CSRF protection enabled (it's on by default)</li>
+				<li>✅ Use HTTPS in production (prevents token theft)</li>
+				<li>✅ Set <code>SameSite=Lax</code> or <code>Strict</code> on cookies</li>
+				<li>✅ Validate token server-side (Astro does this)</li>
+				<li>✅ Use short token lifetimes</li>
+				<li>✅ Regenerate tokens after login</li>
+				<li>❌ Don't disable CSRF for authenticated routes</li>
+				<li>❌ Don't expose tokens in URLs</li>
+				<li>❌ Don't trust client-side validation only</li>
+			</ul>
+		</section>
+		
+		<section>
+			<h2>Troubleshooting</h2>
+			
+			<div class="troubleshoot">
+				<h3>Problem: Getting 403 on legitimate requests</h3>
+				<p><strong>Causes:</strong></p>
+				<ul>
+					<li>Token cookie not being set (check cookies in DevTools)</li>
+					<li>Form missing token field (inspect HTML)</li>
+					<li>Cookie domain mismatch</li>
+					<li>SameSite cookie settings too strict</li>
+				</ul>
+				<p><strong>Solutions:</strong></p>
+				<ul>
+					<li>Verify cookies are enabled</li>
+					<li>Check browser console for errors</li>
+					<li>Ensure proper cookie configuration</li>
+				</ul>
+			</div>
+			
+			<div class="troubleshoot">
+				<h3>Problem: Token not in form</h3>
+				<p><strong>Check:</strong></p>
+				<ul>
+					<li>Using SSR or hybrid mode (not static)</li>
+					<li>Form uses <code>method="POST"</code></li>
+					<li>Astro version is 6.0 or higher</li>
+				</ul>
+			</div>
+		</section>
+	</main>
+</Layout>
+
+<style>
+	main {
+		max-width: 900px;
+		margin: 0 auto;
+		padding: 2rem;
+	}
+	
+	.back-link {
+		display: inline-block;
+		margin-bottom: 2rem;
+		color: #0066cc;
+		text-decoration: none;
+	}
+	
+	section {
+		margin: 3rem 0;
+		padding: 2rem;
+		background: #f9f9f9;
+		border-radius: 0.5rem;
+	}
+	
+	h1 {
+		font-size: 2.5rem;
+		margin-bottom: 2rem;
+	}
+	
+	h2 {
+		font-size: 1.5rem;
+		margin-bottom: 1rem;
+		color: #555;
+	}
+	
+	h3 {
+		font-size: 1.25rem;
+		margin-bottom: 0.75rem;
+	}
+	
+	code {
+		background: #ffe7e7;
+		padding: 0.2rem 0.4rem;
+		border-radius: 0.25rem;
+		font-family: 'Courier New', monospace;
+		font-size: 0.9em;
+	}
+	
+	pre {
+		background: #2d2d2d;
+		color: #f8f8f2;
+		padding: 1.5rem;
+		border-radius: 0.5rem;
+		overflow-x: auto;
+		font-size: 0.875rem;
+		line-height: 1.5;
+		margin: 1rem 0;
+	}
+	
+	pre code {
+		background: none;
+		padding: 0;
+		color: inherit;
+	}
+	
+	ul, ol {
+		line-height: 1.8;
+	}
+	
+	li {
+		margin: 0.5rem 0;
+	}
+	
+	.warning-box {
+		background: #fff3cd;
+		border-left: 4px solid #ffc107;
+		padding: 1.5rem;
+		margin: 1.5rem 0;
+	}
+	
+	.warning-box h3 {
+		margin-top: 0;
+		color: #856404;
+	}
+	
+	.test-steps {
+		display: grid;
+		gap: 1.5rem;
+		margin-top: 1.5rem;
+	}
+	
+	.test {
+		background: white;
+		padding: 1.5rem;
+		border-radius: 0.5rem;
+		border: 1px solid #ddd;
+	}
+	
+	.test h3 {
+		margin-top: 0;
+	}
+	
+	.troubleshoot {
+		background: white;
+		padding: 1.5rem;
+		border-radius: 0.5rem;
+		margin: 1.5rem 0;
+		border-left: 4px solid #0066cc;
+	}
+	
+	.troubleshoot h3 {
+		margin-top: 0;
+		color: #0066cc;
+	}
+</style>
