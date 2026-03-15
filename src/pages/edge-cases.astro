@@ -1,0 +1,603 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="Edge Cases & Gotchas - CSRF Protection">
+	<main>
+		<a href="/" class="back-link">← Back to Home</a>
+		
+		<h1>Edge Cases & Common Gotchas</h1>
+		
+		<section>
+			<h2>When CSRF Protection Fires</h2>
+			<p>Understanding the execution order is critical:</p>
+			
+			<div class="flow-diagram">
+				<div class="flow-step">
+					<strong>1. Request Arrives</strong>
+					<p>Browser sends HTTP request</p>
+				</div>
+				<div class="arrow">↓</div>
+				<div class="flow-step highlight">
+					<strong>2. CSRF Validation (Built-in)</strong>
+					<p>Astro checks CSRF token BEFORE middleware</p>
+					<p class="note">❗ This happens automatically</p>
+				</div>
+				<div class="arrow">↓</div>
+				<div class="flow-step">
+					<strong>3. Your Middleware</strong>
+					<p>Custom middleware runs (src/middleware.ts)</p>
+				</div>
+				<div class="arrow">↓</div>
+				<div class="flow-step">
+					<strong>4. Route Handler</strong>
+					<p>Your page/API code executes</p>
+				</div>
+			</div>
+			
+			<div class="warning-box">
+				<h3>⚠️ Key Point</h3>
+				<p>
+					<strong>CSRF validation happens BEFORE your middleware!</strong>
+					If the token is invalid, your middleware never runs.
+					This is by design - security first.
+				</p>
+			</div>
+		</section>
+		
+		<section>
+			<h2>Webhooks: The Classic Gotcha</h2>
+			<p>
+				Webhooks are external services calling YOUR API. They don't have CSRF tokens
+				and shouldn't need them. They use signature verification instead.
+			</p>
+			
+			<h3>The Problem:</h3>
+			<pre><code>// ❌ This will fail with CSRF enabled!
+// /api/webhook/stripe
+export async function POST({ request }) {
+  const signature = request.headers.get('stripe-signature');
+  // Stripe sends no CSRF token
+  // Astro rejects with 403 Forbidden
+}</code></pre>
+			
+			<h3>The Solution: Exclude the Route</h3>
+			<pre><code>// astro.config.mjs
+export default defineConfig({
+  output: 'server',
+  security: {
+    csrf: {
+      exclude: [
+        '/api/webhook/*',      // All webhook endpoints
+        '/api/webhook/stripe', // Specific endpoint
+        '/api/webhook/github',
+      ]
+    }
+  }
+});</code></pre>
+			
+			<h3>Common Webhook Providers:</h3>
+			<ul>
+				<li><strong>Stripe:</strong> Uses <code>stripe-signature</code> header</li>
+				<li><strong>GitHub:</strong> Uses <code>x-hub-signature-256</code> header</li>
+				<li><strong>Twilio:</strong> Uses <code>x-twilio-signature</code> header</li>
+				<li><strong>Shopify:</strong> Uses <code>x-shopify-hmac-sha256</code> header</li>
+			</ul>
+			
+			<div class="tip-box">
+				<h3>💡 Best Practice</h3>
+				<p>
+					Create a dedicated <code>/api/webhook/*</code> path for all webhooks.
+					Exclude the entire path. Verify signatures in your webhook handlers.
+				</p>
+			</div>
+		</section>
+		
+		<section>
+			<h2>Public APIs: Another Common Case</h2>
+			<p>
+				Public API endpoints that use API keys or OAuth don't need CSRF protection.
+				CSRF only applies to cookie-based authentication.
+			</p>
+			
+			<h3>When to Exclude:</h3>
+			<div class="comparison-grid">
+				<div class="exclude-yes">
+					<h4>✅ Exclude These:</h4>
+					<ul>
+						<li>API key authenticated endpoints</li>
+						<li>OAuth/JWT authenticated endpoints</li>
+						<li>Public read-only APIs</li>
+						<li>Webhook receivers</li>
+						<li>CORS-enabled public APIs</li>
+					</ul>
+				</div>
+				<div class="exclude-no">
+					<h4>❌ Don't Exclude These:</h4>
+					<ul>
+						<li>User-facing forms</li>
+						<li>Cookie/session authenticated endpoints</li>
+						<li>Admin panels</li>
+						<li>Account management endpoints</li>
+						<li>Anything using session cookies</li>
+					</ul>
+				</div>
+			</div>
+			
+			<h3>Example: Public API</h3>
+			<pre><code>// /api/public/data
+// Uses API key in header, not cookies
+// Should be excluded from CSRF
+
+export async function POST({ request }) {
+  const apiKey = request.headers.get('x-api-key');
+  if (!isValidApiKey(apiKey)) {
+    return new Response('Invalid API key', { status: 401 });
+  }
+  
+  // Process request
+}</code></pre>
+		</section>
+		
+		<section>
+			<h2>Middleware Execution Order Issues</h2>
+			
+			<h3>Problem: Can't Access Session Before CSRF</h3>
+			<pre><code>// ❌ This middleware runs AFTER CSRF validation
+// src/middleware.ts
+export async function onRequest(context, next) {
+  // If CSRF fails, this never runs!
+  const session = await getSession(context.request);
+  context.locals.user = session.user;
+  return next();
+}</code></pre>
+			
+			<h3>Impact:</h3>
+			<ul>
+				<li>You can't customize CSRF behavior based on session data</li>
+				<li>You can't log failed CSRF attempts with user context</li>
+				<li>Authentication middleware runs after CSRF validation</li>
+			</ul>
+			
+			<h3>Workaround: Use Exclusions</h3>
+			<p>
+				If you need custom CSRF logic, exclude the route and implement
+				your own validation in middleware:
+			</p>
+			<pre><code>// astro.config.mjs
+export default defineConfig({
+  security: {
+    csrf: {
+      exclude: ['/api/custom-csrf/*']
+    }
+  }
+});
+
+// src/middleware.ts
+export async function onRequest(context, next) {
+  if (context.url.pathname.startsWith('/api/custom-csrf')) {
+    // Your custom CSRF logic here
+    const token = context.request.headers.get('x-csrf-token');
+    if (!validateCustomToken(token)) {
+      return new Response('Invalid token', { status: 403 });
+    }
+  }
+  return next();
+}</code></pre>
+		</section>
+		
+		<section>
+			<h2>CORS and CSRF</h2>
+			<p>
+				CORS and CSRF protection work together but serve different purposes:
+			</p>
+			
+			<table>
+				<thead>
+					<tr>
+						<th>CORS</th>
+						<th>CSRF</th>
+					</tr>
+				</thead>
+				<tbody>
+					<tr>
+						<td>Controls which origins can make requests</td>
+						<td>Validates requests are intentional</td>
+					</tr>
+					<tr>
+						<td>Protects the caller</td>
+						<td>Protects the user</td>
+					</tr>
+					<tr>
+						<td>Optional headers</td>
+						<td>Required token</td>
+					</tr>
+					<tr>
+						<td>Browser-enforced</td>
+						<td>Server-enforced</td>
+					</tr>
+				</tbody>
+			</table>
+			
+			<h3>The Gotcha: CORS Preflight vs CSRF</h3>
+			<pre><code>// ❌ CORS preflight (OPTIONS) has no CSRF token!
+// This will fail if you don't handle it
+
+// ✅ Astro automatically allows OPTIONS without CSRF
+// But be aware of this when debugging</code></pre>
+		</section>
+		
+		<section>
+			<h2>SPA/Client-Side Apps</h2>
+			<p>
+				If you're building a Single Page Application that makes API calls,
+				you need to include the CSRF token in requests:
+			</p>
+			
+			<h3>Getting the Token:</h3>
+			<pre><code>// Option 1: From cookie
+function getCsrfToken() {
+  const cookies = document.cookie.split('; ');
+  const csrfCookie = cookies.find(c => c.startsWith('astro.csrf='));
+  return csrfCookie ? csrfCookie.split('=')[1] : null;
+}
+
+// Option 2: From meta tag (if you add one)
+const token = document.querySelector('meta[name="csrf-token"]')?.content;</code></pre>
+			
+			<h3>Sending the Token:</h3>
+			<pre><code>// In fetch requests
+fetch('/api/transfer', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-CSRF-Token': getCsrfToken()
+  },
+  body: JSON.stringify({ amount: 100 })
+});</code></pre>
+			
+			<h3>Common Mistake:</h3>
+			<pre><code>// ❌ Forgetting to include token in AJAX requests
+fetch('/api/action', {
+  method: 'POST',
+  body: JSON.stringify(data)
+});
+// → 403 Forbidden
+
+// ✅ Include token
+fetch('/api/action', {
+  method: 'POST',
+  headers: { 'X-CSRF-Token': getCsrfToken() },
+  body: JSON.stringify(data)
+});
+// → Success</code></pre>
+		</section>
+		
+		<section>
+			<h2>Development vs Production</h2>
+			
+			<h3>Development Gotchas:</h3>
+			<ul>
+				<li><strong>Hot reload:</strong> Tokens persist across reloads in dev</li>
+				<li><strong>Multiple tabs:</strong> Each tab has its own session</li>
+				<li><strong>Cookie scope:</strong> localhost vs 127.0.0.1 are different domains</li>
+			</ul>
+			
+			<h3>Production Considerations:</h3>
+			<ul>
+				<li><strong>HTTPS required:</strong> Secure cookies won't work over HTTP</li>
+				<li><strong>Cookie domain:</strong> Set correctly for subdomains</li>
+				<li><strong>SameSite:</strong> Set to 'Lax' or 'Strict' in production</li>
+				<li><strong>Load balancers:</strong> Ensure session affinity if needed</li>
+			</ul>
+		</section>
+		
+		<section>
+			<h2>Debugging CSRF Issues</h2>
+			
+			<h3>Check 1: Is CSRF Active?</h3>
+			<pre><code>// Only active in SSR/hybrid mode
+// Check your astro.config.mjs:
+export default defineConfig({
+  output: 'server' // or 'hybrid' - CSRF active
+  // output: 'static' - CSRF not active
+});</code></pre>
+			
+			<h3>Check 2: Inspect the Token</h3>
+			<ol>
+				<li>Open DevTools → Application → Cookies</li>
+				<li>Look for <code>astro.csrf</code> cookie</li>
+				<li>Inspect form HTML for hidden <code>astro.csrf.token</code> field</li>
+				<li>Check Network tab for token in POST requests</li>
+			</ol>
+			
+			<h3>Check 3: Verify Exclusions</h3>
+			<pre><code>// Add logging to see what's excluded
+security: {
+  csrf: {
+    exclude: ['/api/webhook/*'],
+    onInvalidToken: (request) => {
+      console.log('CSRF failed for:', request.url);
+      console.log('Headers:', request.headers);
+      return new Response('Invalid token', { status: 403 });
+    }
+  }
+}</code></pre>
+			
+			<h3>Common Error Messages:</h3>
+			<div class="error-list">
+				<div class="error-item">
+					<strong>403 Forbidden</strong>
+					<p>→ Missing or invalid CSRF token</p>
+				</div>
+				<div class="error-item">
+					<strong>Cookie not set</strong>
+					<p>→ Not in SSR mode, or cookies blocked</p>
+				</div>
+				<div class="error-item">
+					<strong>Token mismatch</strong>
+					<p>→ Session expired, or token modified</p>
+				</div>
+			</div>
+		</section>
+		
+		<section>
+			<h2>Quick Reference: When to Exclude</h2>
+			<table class="decision-table">
+				<thead>
+					<tr>
+						<th>Scenario</th>
+						<th>Exclude?</th>
+						<th>Reason</th>
+					</tr>
+				</thead>
+				<tbody>
+					<tr>
+						<td>User login form</td>
+						<td class="no">❌ No</td>
+						<td>Uses cookies</td>
+					</tr>
+					<tr>
+						<td>Stripe webhook</td>
+						<td class="yes">✅ Yes</td>
+						<td>Uses signature</td>
+					</tr>
+					<tr>
+						<td>Public API (API keys)</td>
+						<td class="yes">✅ Yes</td>
+						<td>No cookies</td>
+					</tr>
+					<tr>
+						<td>Admin panel</td>
+						<td class="no">❌ No</td>
+						<td>Uses cookies</td>
+					</tr>
+					<tr>
+						<td>Password reset form</td>
+						<td class="no">❌ No</td>
+						<td>User-facing</td>
+					</tr>
+					<tr>
+						<td>OAuth callback</td>
+						<td class="maybe">⚠️ Maybe</td>
+						<td>Depends on flow</td>
+					</tr>
+				</tbody>
+			</table>
+		</section>
+	</main>
+</Layout>
+
+<style>
+	main {
+		max-width: 1000px;
+		margin: 0 auto;
+		padding: 2rem;
+	}
+	
+	.back-link {
+		display: inline-block;
+		margin-bottom: 2rem;
+		color: #0066cc;
+		text-decoration: none;
+	}
+	
+	section {
+		margin: 3rem 0;
+		padding: 2rem;
+		background: #f9f9f9;
+		border-radius: 0.5rem;
+	}
+	
+	h1 {
+		font-size: 2.5rem;
+		margin-bottom: 2rem;
+	}
+	
+	h2 {
+		font-size: 1.5rem;
+		margin-bottom: 1rem;
+		color: #555;
+	}
+	
+	h3 {
+		font-size: 1.25rem;
+		margin: 1.5rem 0 0.75rem;
+	}
+	
+	.flow-diagram {
+		background: white;
+		padding: 2rem;
+		border-radius: 0.5rem;
+		margin: 1.5rem 0;
+	}
+	
+	.flow-step {
+		background: #f0f0f0;
+		padding: 1.5rem;
+		border-radius: 0.5rem;
+		margin: 0.5rem 0;
+	}
+	
+	.flow-step.highlight {
+		background: #ffe7e7;
+		border: 2px solid #dc3545;
+	}
+	
+	.flow-step strong {
+		display: block;
+		margin-bottom: 0.5rem;
+		color: #333;
+	}
+	
+	.flow-step .note {
+		font-size: 0.875rem;
+		color: #dc3545;
+		font-weight: 600;
+		margin-top: 0.5rem;
+	}
+	
+	.arrow {
+		text-align: center;
+		font-size: 2rem;
+		color: #666;
+		margin: 0.5rem 0;
+	}
+	
+	.warning-box, .tip-box {
+		padding: 1.5rem;
+		margin: 1.5rem 0;
+		border-radius: 0.5rem;
+	}
+	
+	.warning-box {
+		background: #fff3cd;
+		border-left: 4px solid #ffc107;
+	}
+	
+	.warning-box h3 {
+		margin-top: 0;
+		color: #856404;
+	}
+	
+	.tip-box {
+		background: #d1ecf1;
+		border-left: 4px solid #0c5460;
+	}
+	
+	.tip-box h3 {
+		margin-top: 0;
+		color: #0c5460;
+	}
+	
+	.comparison-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 1.5rem;
+		margin: 1.5rem 0;
+	}
+	
+	.exclude-yes, .exclude-no {
+		background: white;
+		padding: 1.5rem;
+		border-radius: 0.5rem;
+	}
+	
+	.exclude-yes {
+		border: 2px solid #28a745;
+	}
+	
+	.exclude-no {
+		border: 2px solid #dc3545;
+	}
+	
+	table {
+		width: 100%;
+		border-collapse: collapse;
+		margin: 1.5rem 0;
+		background: white;
+	}
+	
+	th, td {
+		padding: 1rem;
+		text-align: left;
+		border-bottom: 1px solid #ddd;
+	}
+	
+	th {
+		background: #f0f0f0;
+		font-weight: 600;
+	}
+	
+	.decision-table .yes {
+		color: #28a745;
+		font-weight: 600;
+	}
+	
+	.decision-table .no {
+		color: #dc3545;
+		font-weight: 600;
+	}
+	
+	.decision-table .maybe {
+		color: #ffc107;
+		font-weight: 600;
+	}
+	
+	.error-list {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		margin: 1.5rem 0;
+	}
+	
+	.error-item {
+		background: white;
+		padding: 1rem;
+		border-radius: 0.5rem;
+		border-left: 4px solid #dc3545;
+	}
+	
+	.error-item strong {
+		color: #dc3545;
+	}
+	
+	code {
+		background: #ffe7e7;
+		padding: 0.2rem 0.4rem;
+		border-radius: 0.25rem;
+		font-family: 'Courier New', monospace;
+		font-size: 0.9em;
+	}
+	
+	pre {
+		background: #2d2d2d;
+		color: #f8f8f2;
+		padding: 1.5rem;
+		border-radius: 0.5rem;
+		overflow-x: auto;
+		font-size: 0.875rem;
+		line-height: 1.5;
+		margin: 1rem 0;
+	}
+	
+	pre code {
+		background: none;
+		padding: 0;
+		color: inherit;
+	}
+	
+	ul, ol {
+		line-height: 1.8;
+	}
+	
+	li {
+		margin: 0.5rem 0;
+	}
+	
+	@media (max-width: 768px) {
+		.comparison-grid {
+			grid-template-columns: 1fr;
+		}
+	}
+</style>
